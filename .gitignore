@@ -1,0 +1,30 @@
+# .NET build output
+bin/
+obj/
+
+# Visual Studio and VS Code
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Local configuration and secrets
+appsettings.local.json
+appsettings.*.local.json
+*.pfx
+*.pem
+*.key
+.env
+
+# Local protected documents
+test-data/
+*.pfile
+*.rpmsg
+
+# Local decrypted output
+decrypted-output/
+plaintext-output/
+
+# Operating-system files
+.DS_Store
+Thumbs.db

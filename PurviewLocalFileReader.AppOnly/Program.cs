@@ -47,15 +47,6 @@ if (configuration is null ||
     return 1;
 }
 
-Console.Write("Enter your Microsoft Entra sign-in email: ");
-string? userEmail = Console.ReadLine();
-
-if (string.IsNullOrWhiteSpace(userEmail))
-{
-    Console.Error.WriteLine("A sign-in email address is required.");
-    return 1;
-}
-
 MipContext? mipContext = null;
 IFileProfile? fileProfile = null;
 IFileEngine? fileEngine = null;
@@ -73,8 +64,11 @@ try
         ApplicationVersion = "1.0.0"
     };
 
-    AuthDelegateImplementation authDelegate =
-        new(appInfo, configuration.TenantId);
+AuthDelegateImplementation authDelegate =
+    new(
+        appInfo,
+        configuration.TenantId,
+        configuration.CertificateThumbprint);
 
     ConsentDelegateImplementation consentDelegate = new();
 
@@ -96,12 +90,12 @@ try
     Console.WriteLine("MIP File profile loaded successfully.");
 
     FileEngineSettings engineSettings = new(
-        userEmail,
+        configuration.ClientId,
         authDelegate,
         string.Empty,
         "en-US");
 
-    engineSettings.Identity = new Identity(userEmail);
+    engineSettings.Identity = new Identity(configuration.ClientId);
 
     fileEngine = await fileProfile.AddEngineAsync(engineSettings);
 
@@ -209,4 +203,6 @@ internal sealed class LocalConfiguration
     public string TenantId { get; set; } = string.Empty;
 
     public string ClientId { get; set; } = string.Empty;
+
+    public string CertificateThumbprint { get; set; } = string.Empty;
 }

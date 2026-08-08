@@ -1,9 +1,11 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.InformationProtection;
 using Microsoft.InformationProtection.File;
 
 
-const string configurationPath = "appsettings.local.json";
+string configurationPath = Path.Combine(
+    AppContext.BaseDirectory,
+    "appsettings.app-only.local.json");
 const string mipDataPath = "mip_data";
 
 if (!File.Exists(configurationPath))
@@ -182,11 +184,6 @@ try
 
         return 1;
     }
-
-    Console.WriteLine();
-    Console.WriteLine("The application is ready for protected-file operations.");
-
-    return 0;
 }
 catch (Exception ex)
 {

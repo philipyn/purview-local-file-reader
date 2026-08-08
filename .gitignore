@@ -28,3 +28,10 @@ plaintext-output/
 # Operating-system files
 .DS_Store
 Thumbs.db
+
+# Local MIP SDK data
+mip_data/
+
+# Local test documents
+*.docx
+*.cer

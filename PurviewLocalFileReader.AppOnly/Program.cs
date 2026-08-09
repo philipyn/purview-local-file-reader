@@ -6,7 +6,6 @@ using Microsoft.InformationProtection.File;
 string configurationPath = Path.Combine(
     AppContext.BaseDirectory,
     "appsettings.app-only.local.json");
-const string mipDataPath = "mip_data";
 
 if (!File.Exists(configurationPath))
 {
@@ -39,10 +38,13 @@ catch (JsonException)
 
 if (configuration is null ||
     string.IsNullOrWhiteSpace(configuration.TenantId) ||
-    string.IsNullOrWhiteSpace(configuration.ClientId))
+    string.IsNullOrWhiteSpace(configuration.ClientId) ||
+    string.IsNullOrWhiteSpace(configuration.CertificateThumbprint) ||
+    string.IsNullOrWhiteSpace(configuration.DelegatedUserEmail))
 {
     Console.Error.WriteLine(
-        "Configuration must contain non-empty TenantId and ClientId values.");
+        "Configuration must contain non-empty TenantId, ClientId, " +
+        "CertificateThumbprint, and DelegatedUserEmail values.");
 
     return 1;
 }
@@ -74,28 +76,34 @@ AuthDelegateImplementation authDelegate =
 
     MipConfiguration mipConfiguration = new(
         appInfo,
-        mipDataPath,
+        string.Empty,
         LogLevel.Trace,
         false,
-        CacheStorageType.OnDiskEncrypted);
+        CacheStorageType.InMemory);
 
     mipContext = MIP.CreateMipContext(mipConfiguration);
 
     FileProfileSettings profileSettings = new(
         mipContext,
-        CacheStorageType.OnDiskEncrypted,
+        CacheStorageType.InMemory,
         consentDelegate);
+
+    profileSettings.CanCacheLicenses = false;
 
     fileProfile = await MIP.LoadFileProfileAsync(profileSettings);
     Console.WriteLine("MIP File profile loaded successfully.");
 
     FileEngineSettings engineSettings = new(
-        configuration.ClientId,
+        configuration.DelegatedUserEmail,
         authDelegate,
         string.Empty,
         "en-US");
 
-    engineSettings.Identity = new Identity(configuration.ClientId);
+    engineSettings.Identity =
+        new Identity(configuration.DelegatedUserEmail);
+
+    engineSettings.DelegatedUserEmail =
+        configuration.DelegatedUserEmail;
 
     fileEngine = await fileProfile.AddEngineAsync(engineSettings);
 
@@ -205,4 +213,6 @@ internal sealed class LocalConfiguration
     public string ClientId { get; set; } = string.Empty;
 
     public string CertificateThumbprint { get; set; } = string.Empty;
+
+    public string DelegatedUserEmail { get; set; } = string.Empty;
 }

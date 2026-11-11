@@ -1,0 +1,24 @@
+{
+  "version": "2.0",
+  "functionTimeout": "00:10:00",
+  "logging": {
+    "logLevel": {
+      "default": "Warning",
+      "purviewLocalFileReader.AppOnly.function": "Information",
+      "System.Net.Http.HttpClient": "None"
+    }
+  },
+  "extensions": {
+    "durableTask": {
+      "hubName": "PurviewDecryption",
+      "maxConcurrentActivityFunctions": 1,
+      "maxConcurrentOrchestratorFunctions": 5,
+      "tracing": {
+        "traceInputsAndOutputs": false
+      }
+    },
+    "http": {
+      "routePrefix": "api"
+    }
+  }
+}

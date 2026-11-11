@@ -1,0 +1,13 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "SharePointDriveId": "",
+    "SharePointHostName": "",
+    "BlobServiceUri": "",
+    "BlobContainerName": "",
+    "MaxFileSizeMiB": "25",
+    "MaxDecryptedSizeMiB": "100"
+  }
+}

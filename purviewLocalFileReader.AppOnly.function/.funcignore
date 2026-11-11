@@ -1,0 +1,15 @@
+local.settings*.json
+appsettings*.local.json
+bin
+obj
+mip
+mip_data
+test-data
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+*.docx
+*.pfile
+*.rpmsg

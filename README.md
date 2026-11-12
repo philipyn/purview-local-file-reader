@@ -12,8 +12,10 @@
 - [PurviewLocalFileReader.AppOnly.Tests](./PurviewLocalFileReader.AppOnly.Tests/PurviewLocalFileReader.AppOnly.Tests.csproj)
   contains automated tests for the Functions application and is not deployed.
 
-No Azure infrastructure is provisioned by this repository. Deployment, permission
-changes, storage creation, and live document processing require separate approval.
+Nothing is provisioned automatically. The opt-in Bicep templates described below
+define a Windows B1 private-output pilot. Deployment, permission changes,
+certificate transfer, storage creation, and live document processing require
+separate approval.
 
 ## Request and result
 
@@ -162,9 +164,10 @@ disables key checks, so expose local endpoints only on a trusted development hos
 
 ## Hosting and data handling
 
-- Start with Functions v4 on **Windows x64 Premium**, not Linux/Flex with this
-  Windows native package. Keep .NET 10 and verify the native MIP dependencies,
-  including the required x64 Visual C++ runtime, on the selected host.
+- Use Functions v4 on **Windows x64 Premium or Dedicated**, not Linux/Flex with
+  this Windows native package. The approved low-volume pilot uses Dedicated B1
+  with Always On. Keep .NET 10 and verify native MIP dependencies, including the
+  required x64 Visual C++ runtime, memory headroom and startup on the selected host.
 - Durable Functions uses an existing `AzureWebJobsStorage` account for its task
   hub. When a host is eventually started, the Durable extension manages its own
   queues, tables, and blobs. For local execution, the sample uses an independently
@@ -197,6 +200,275 @@ disables key checks, so expose local endpoints only on a trusted development hos
 - Original user-staged SDK log/telemetry files have not been unstaged or removed.
   New ignore rules do not remove files already in Git's index. Review those staged
   files separately before committing.
+
+## Azure pilot infrastructure
+
+The [subscription template](./infra/main.bicep),
+[pilot module](./infra/modules/pilot.bicep), and
+[parameter file](./infra/main.bicepparam) describe the approved non-production
+deployment in East Asia, in a new `rg-purview-function-test` resource group:
+
+| Component | Pilot configuration |
+|---|---|
+| Functions | One Windows B1 instance, .NET 10 isolated/x64, Always On, one worker |
+| Networking | Isolated VNet `10.88.0.0/24`; delegated integration `/26` and separate private-endpoint `/27` |
+| Decrypted output | New private `decrypted-output` container, Blob private endpoint and private DNS; public network/shared-key/anonymous access disabled |
+| Host/Durable storage | New StorageV2/LRS account, managed identity, Blob/Queue/Table private endpoints, seven-day soft-delete for host metadata; public/shared-key/anonymous access disabled |
+| Client certificate | Existing certificate uploaded to App Service only; specific thumbprint loaded in `CurrentUser\My`, no private-key/password files |
+| Certificate vault | Existing pilot RBAC-enabled Standard Key Vault remains private and empty, with soft-delete/purge protection; no certificate import |
+| Monitoring | Workspace-linked Application Insights, managed-identity ingestion, Vault audit events, 30-day workspace retention |
+| Incoming access | Function and SCM/deployment endpoints default-deny; exact approved workstation IPv4 `/32` only |
+
+This is **private host and output Storage**, not a fully private application.
+Four Storage private endpoints use three VNet-linked private DNS zones: the host
+and output share the Blob zone, and the host also uses Queue and Table zones.
+Organization policy requires Storage and Key Vault public-network access to be
+disabled; public service-endpoint/IP exceptions cannot override it. The existing
+subnet service-endpoint declarations are inert for these public-disabled services.
+Vault remains unused; the reader loads its certificate from App Service. No Vault
+private endpoint or private administration route is provisioned.
+Graph, SharePoint and Purview use authenticated public HTTPS. Default App Service
+routing sends private destinations through the VNet while public Internet traffic
+uses the App Service outbound route. No NAT
+Gateway, firewall, VPN, private incoming Function endpoint or private monitoring
+scope is provisioned. The shared NSG is enforced on the private endpoint: it allows
+runtime-subnet HTTPS to all four Storage endpoints, denies other VNet inbound traffic and blocks
+outbound SSH/RDP to the VNet. These rules do not provide FQDN-based Internet
+egress filtering or secure the Function's HTTP endpoint.
+
+The approved workstation IP is `112.118.75.90/32`. Recheck it before deployment;
+stop for approval if it changes rather than expanding it to an office prefix.
+Keep Function-key authorization. An application on another network will not be
+able to call this pilot until its precise outbound IP is separately approved.
+Being able to invoke the Function does not provide direct private-network access
+to its output account: the workstation cannot download those blobs without
+separate private connectivity and Blob data authorization.
+
+The estimated recurring B1/four-private-endpoint/three-DNS-zone subtotal is
+**USD 85.45/month** at
+730 hours. Small Storage, Key Vault and logging allowances bring the illustrative
+light-use estimate to **USD 89.76/month**, before taxes, bandwidth and additional
+usage. This is not a spending cap. Stopping the Function does not stop Dedicated
+plan charges. B1 has 1.75 GB RAM, no zone redundancy, no scale-to-zero and no
+deployment slots. Regional SKU listing does not guarantee allocation capacity.
+Validate native compatibility and memory in Azure before approving any live job.
+
+The templates reuse the approved reader application and fixed Pim configuration;
+they do not grant Graph/Purview permissions or alter document rights. Fixed Pim is
+an application setting, **not an Entra-enforced restriction of the app credential
+to that user**. Trusted administrators who can change code/configuration or use
+the certificate remain in the security boundary. Do not treat this pilot as a
+production multi-user authorization design.
+
+Populate the certificate-thumbprint environment variable from the approved local
+configuration before evaluating the parameter file. A thumbprint is lookup
+metadata, not a PFX or password. Any future certificate transfer requires a
+separately approved operation; never put the private key in Bicep, parameters,
+command-line arguments, logs or the application package.
+
+For the approved local certificate, set the lookup metadata without exporting it.
+Local Bicep and parameter compilation do not provision resources:
+
+```powershell
+$auth = Get-Content .\purviewLocalFileReader.AppOnly.function\appsettings.app-only.local.json -Raw -ErrorAction Stop | ConvertFrom-Json
+$env:PURVIEW_CERTIFICATE_THUMBPRINT = [string]$auth.CertificateThumbprint
+az bicep build --file .\infra\main.bicep
+az bicep build-params --file .\infra\main.bicepparam --outfile "$env:TEMP\purview-pilot.parameters.json"
+```
+
+Review the resolved parameters, generated ARM, security scan, Azure validation and
+incremental what-if before any deployment. Stop if the preview changes existing
+resources, changes SKU/region, adds private endpoints or widens network access.
+Use Entra-authenticated ZIP deployment with remote build disabled after separate
+deployment approval. The Dedicated plan uses run-from-package and does not
+require a customer Azure Files content share.
+
+Deploying infrastructure is not publishing the application or transferring its
+certificate. After those separately approved operations, verify all four indexed
+Functions, the loaded private-key certificate, Windows x64/native dependencies,
+and private DNS/Storage connectivity. Use the existing unknown-job GET for a
+non-mutating endpoint smoke test, not a POST. Neither these templates nor smoke
+checks authorize a live document-processing job, changes to existing
+Storage/NSP/site/document grants, plaintext retention/deletion, or a Git push.
+Pilot logging includes sanitized Function-host telemetry and Key Vault audit
+events, retained for 30 days in the pilot workspace. Storage transaction
+diagnostics and production retention policies are not added automatically.
+Host-metadata soft-delete does not retain extra decrypted-output copies: output
+soft-delete and versioning remain disabled. Workspace ingestion caps are best
+effort, not financial limits.
+
+The [runtime role module](./infra/modules/roles.bicep) creates scoped data roles
+after the Function identity and target resources exist, avoiding a circular
+storage/application dependency. The subscription entry point runs this as a
+separate phase after the pilot module. Predictable resource IDs are constructed
+directly, with explicit deployment dependencies, rather than passed through
+runtime module-output references. Application settings are deployed as a child
+resource so the runtime Application Insights connection-string lookup does not
+prevent Azure from previewing the Function's hosting and security configuration.
+That lookup uses the monitoring module output, not a duplicate `existing`
+declaration that could be read before the component is created. Unused Key Vault
+VM-certificate deployment, template-secret deployment and disk-encryption
+integrations are explicitly disabled; none requires widening `bypass: None` to
+trusted Azure services.
+All 22 settings and the Function/SCM security controls are preserved.
+
+The `deployRuntimeRoles` parameter defaults to `true`: a normal deployment includes
+the required runtime roles. Setting it to `false` is **bootstrap-only**, not a
+complete or usable deployment. The staged sequence, after explicit approval, is:
+
+1. Validate and preview the bootstrap with
+   `--parameters .\infra\main.bicepparam deployRuntimeRoles=false`, then provision
+   only the reviewed new resources.
+2. Read the actual Function system-assigned principal ID. Validate and preview
+   the unchanged role module with that ID and the provisioned target names before
+   granting its five scoped roles. Never substitute a guessed principal or change
+   the role GUIDs to hide this dependency. Stop on any unexpected change or error.
+3. Only after the role phase succeeds, perform the separately authorized
+   certificate transfer, application publication and non-mutating smoke checks.
+
+Bootstrap resources incur charges even if the role phase fails. A cold preview of
+the complete plan still cannot resolve the principal-dependent role GUIDs before
+the Function exists; this is why the role phase needs its own real-ID preflight.
+These stages do not authorize a document-processing POST.
+
+Pinned official Azure Verified Modules are used
+where compatible. The workspace is defined directly because its AVM exposes an
+integer daily quota while the approved `0.1` GB quota requires a fractional REST
+number; Bicep emits the standard ARM `json('0.1')` expression.
+
+**Local validation:** Bicep/parameter compilation and targeted compiled-setting
+assertions passed. Bicep 0.44.1 still warns that its type catalog lacks the NSG
+AVM's `2025-09-01` API. Checkov 3.4.3 fails while parsing the subscription ARM graph,
+and its alternative Bicep/workload scans check zero resources; none are security
+passes.
+
+The compatible alternative is **PSRule 2.9.0 / PSRule.Rules.Azure 1.47.0**, using
+offline nested-template/parameter expansion. The
+[policy configuration](./infra/ps-rule.yaml) records nine target-scoped exceptions
+for the approved B1/single-region/LRS availability compromises, avoiding retained
+deleted plaintext copies, and the unused AVM key-configuration parameter
+heuristic. No security rule is globally excluded. The revised private-host scan
+passes 356 checks across 50 analyzed targets, with no remaining failures after
+those exceptions.
+Role-assignment targets have no matching baseline rules and require the separate
+scope/role-ID checks; offline dynamic lookups use placeholders, not real secrets.
+
+With the specified PSRule modules available through your approved package source
+and the thumbprint environment variable set as above:
+
+```powershell
+$env:PSRULE_AZURE_BICEP_PATH = Join-Path $env:USERPROFILE '.azure\bin\bicep.exe'
+$option = New-PSRuleOption -Path .\infra\ps-rule.yaml
+Invoke-PSRule -InputPath .\infra\main.bicepparam -Module PSRule.Rules.Azure -Format File -Option $option -Baseline Azure.GA_2025_12
+```
+
+PSRule tooling was installed only in the session's isolated validation directory,
+not globally or in the application. This is not a successful Checkov scan or a
+production-readiness certification.
+
+**Azure preflight history:** after removing avoidable module-output dependencies,
+the original bootstrap what-if succeeded with
+**24 Create, 0 Modify, 0 Delete and no diagnostics**.
+All changes are confined to the new resource group and include the Function,
+publishing-auth restrictions, application settings, private endpoint and DNS zone
+group, which were previously skipped. Provider validation exits zero and lists
+all 24 resource IDs as validated, but still emits one
+`NestedDeploymentSkippedFromInternalExpansion` batch warning. This warning also
+persists with the latest advertised ARM validation API; do not describe the
+provider result as warning-free. The complete default plan's cold preview still
+skips the five runtime role assignments until their actual principal exists.
+Staged provisioning requires explicit approval, fresh identity/IP/name checks,
+the real-ID role preflight and live native/runtime verification.
+Provisioning began after explicit staged approval. The first bootstrap attempt
+partially created the new pilot resources but failed on the unused Vault platform
+integration defaults and an early monitoring lookup. Both template issues were
+corrected without widening access or changing SKU/region, and the incremental
+bootstrap retry succeeded.
+
+**Policy-compliant networking revision:** the management-group
+`MCAPSGov Deploy and Modify Policies` assignment forcibly changes Storage and
+Key Vault public-network access to `Disabled`. The host account's approved
+service-endpoint exception and the workstation's Vault IP rule therefore do not
+provide connectivity. A successful ARM deployment and a Function state of
+`Running` are not proof that the Function is usable. Do not repeatedly enable
+public access, add exception tags or bypass the policy.
+
+The user explicitly approved three additional host Storage private endpoints
+(Blob, Queue and Table) and two private DNS zones, reusing the existing Blob zone.
+This adds approximately USD 22.90/month to the original estimate. The revised
+template passed compilation, PSRule and Provider validation. Its incremental
+what-if reported 10 Create, 13 Modify, 11 NoChange and 2 Ignore, with no deletes or
+diagnostics; the ten creates were exactly the approved endpoints, DNS zone groups,
+zones and VNet links. The networking deployment succeeded without policy changes
+or modifications outside the pilot.
+
+### Deployed pilot and verified limits
+
+The approved deployment completed on **2026-11-11**:
+
+- Resource group: `rg-purview-function-test`; East Asia; Windows B1, one instance.
+- Function App: `func-purview-dev-ee9a`, reachable at
+  `https://func-purview-dev-ee9a.azurewebsites.net` only from the approved `/32`.
+  Both HTTP endpoints retain Function-key authorization.
+- The real system-assigned identity's five scoped roles passed a fresh five-create
+  Provider/what-if preflight, deployed successfully, and were verified against the
+  approved scopes/role IDs. Output access is container-scoped; the Function has
+  no Vault role.
+- The existing certificate was transferred in process memory through authenticated
+  ARM HTTPS to App Service only. No private-key/password files were created.
+  The loaded `CurrentUser\My` private key successfully signed and verified a
+  non-credential probe; the certificate expires **2027-08-08 08:12:36 UTC**.
+  Plan rotation before expiry. Vault is private and empty; no Vault import or
+  unattended rotation was implemented.
+- Entra-authenticated ZIP deployment completed successfully with basic publishing
+  authentication still disabled. All four expected Functions are indexed.
+- Azure sandbox checks confirmed x64 execution and successful load/unload of all
+  six native MIP DLLs. This does not prove MIP engine initialization or document
+  decryption succeeds.
+- All four Storage service hostnames resolved to private addresses from the Azure
+  environment. Managed-identity reads of host Blob/Queue/Table and a HEAD of the
+  private output container returned HTTP 200; no output document was downloaded.
+- An unknown-job GET returned HTTP 401 without a key, then HTTP 404 with
+  `{"error":"JOB_NOT_FOUND"}` and `Cache-Control: no-store` using a key header.
+- Azure Resource Health reported Available. The monitoring connection string,
+  AAD authentication and Metrics Publisher role match the approved component.
+  Routine request telemetry was not observed: the existing host default is
+  Warning, without a `Host.Results: Information` override. Logging was not
+  changed, and observed monitoring ingestion is **not** claimed as verified.
+
+Those initial deployment smoke checks did not submit a document job. The later
+single-copy live test below was separately approved.
+Existing SharePoint documents/grants, the old Storage account/shared NSP and the
+earlier local plaintext output were not changed. No Git commit or push was made.
+The Dedicated plan and private endpoints remain billable while idle or stopped.
+
+### Approved Azure live test
+
+On **2026-11-11**, the user separately authorized exactly one job using the
+previously EXPORT-enabled test copy, not the original protected document.
+
+| Result | Verified value |
+|---|---|
+| Job ID | `3fcb4e14f2f3488ba7c4a71cd293967f` |
+| Durable status | Completed |
+| Output account / container | `stpurviewoutdevee9a` / `decrypted-output` |
+| Blob name | `3fcb4e14f2f3488ba7c4a71cd293967f/content` |
+| Output | 29,236-byte unencrypted DOCX; ZIP package and readable Word XML verified inside Azure memory |
+| Privacy / caching | Container public access None; output `Cache-Control: no-store` |
+| Application scratch | Zero remaining job directories after completion |
+
+This validates real certificate-based SharePoint/Purview authentication, MIP engine
+initialization, the configured Pim user's EXPORT check, decryption and
+managed-identity private Blob upload for this particular copy. No document contents
+were displayed or downloaded to the workstation. The blob is named `content`
+without a file extension; its verified format is DOCX.
+
+**The unencrypted test output remains in the private container.** No cleanup was
+authorized. The single-job approval is consumed: it does not permit more jobs,
+local plaintext downloads, source/permission/policy/resource changes, or a Git
+commit/push. Other formats, denial/size-limit integration cases, load, memory and
+crash recovery still require separately scoped validation. Monitoring and
+trusted-admin/production-authorization limitations above remain unchanged.
 
 ## Local verification
 

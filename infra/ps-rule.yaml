@@ -1,0 +1,32 @@
+configuration:
+  AZURE_BICEP_PARAMS_FILE_EXPANSION: true
+  AZURE_BICEP_FILE_EXPANSION_TIMEOUT: 120
+  AZURE_SUBSCRIPTION:
+    subscriptionId: b706945d-ef1a-4d9c-bbe7-57e85d6ae92c
+    tenantId: 62cece83-4b19-4636-84f4-60d52b2d31b8
+  AZURE_TENANT:
+    tenantId: 62cece83-4b19-4636-84f4-60d52b2d31b8
+
+suppression:
+  # Approved single-region, single-instance B1/LRS pilot, not production HA.
+  Azure.Log.Replication:
+    - log-purview-dev-ee9a
+  Azure.Storage.UseReplication:
+    - stpurviewhostdevee9a
+    - stpurviewoutdevee9a
+  Azure.AppService.PlanInstanceCount:
+    - asp-purview-dev-ee9a
+  Azure.AppService.AvailabilityZone:
+    - asp-purview-dev-ee9a
+  Azure.AppService.MinPlan:
+    - asp-purview-dev-ee9a
+
+  # Do not silently retain additional deleted plaintext copies.
+  Azure.Storage.SoftDelete:
+    - stpurviewoutdevee9a
+  Azure.Storage.ContainerSoftDelete:
+    - stpurviewoutdevee9a
+
+  # AVM key-generation configuration is nullable and unused; no key material is passed.
+  Azure.Deployment.SecureParameter:
+    - certificate-vault

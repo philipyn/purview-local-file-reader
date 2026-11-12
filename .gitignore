@@ -35,6 +35,10 @@ Thumbs.db
 mip_data/
 mip/
 TestResults/
+.copilot-azure/
+.azure/insights.json
+.azure/infrastructure-plan.json
+infra/main.json
 
 # Local test documents
 *.docx
